@@ -1,1 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI-Powered Kaleidoscope</title>
+    <!-- Include the p5.js library from a CDN -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.9.0/p5.min.js"></script>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden; /* Prevent scrollbars */
+            background-color: #0a192f;
+            color: #ccd6f6;
+            font-family: 'Inter', sans-serif;
+            display: flex;
+            flex-direction: column;
+            justify-content: flex-start;
+            align-items: center;
+        }
+        canvas {
+            display: block;
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: -1; /* Place canvas behind the text */
+        }
+        .controls {
+            text-align: center;
+            padding: 15px 25px;
+            background-color: rgba(10, 25, 47, 0.85);
+            border-radius: 0 0 16px 16px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+            max-width: 95%;
+            width: 600px;
+            z-index: 10;
+        }
+        h1 {
+            margin: 0 0 5px 0;
+            font-size: 1.6rem;
+            color: #64ffda;
+        }
+        p {
+            margin: 0 0 10px 0;
+            font-size: 0.9rem;
+        }
+        .gemini-feature {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            gap: 10px;
+            margin-top: 15px;
+        }
+        .gemini-feature input {
+            padding: 8px 12px;
+            border-radius: 8px;
+            border: 1px solid #233554;
+            background-color: #112240;
+            color: #ccd6f6;
+            font-family: 'Inter', sans-serif;
+            flex-grow: 1;
+            min-width: 150px;
+        }
+        .gemini-feature input::placeholder {
+            color: #8892b0;
+        }
+        button {
+            padding: 8px 16px;
+            border-radius: 8px;
+            border: none;
+            background-color: #64ffda;
+            color: #0a192f;
+            font-weight: bold;
+            cursor: pointer;
+            transition: all 0.2s ease-in-out;
+        }
+        button:hover {
+            background-color: #52d3c0;
+            box-shadow: 0 0 10px #64ffda44;
+        }
+        button:disabled {
+            background-color: #233554;
+            color: #8892b0;
+            cursor: not-allowed;
+        }
+        #artworkName {
+            margin-top: 15px;
+            font-style: italic;
+            color: #64ffda;
+            min-height: 24px;
+            font-size: 1.1rem;
+            transition: opacity 0.3s;
+        }
+        .loader {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #64ffda;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            animation: spin 1s linear infinite;
+            display: none; /* Hidden by default */
+        }
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+    </style>
+    <!-- Google Font for better typography -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&display=swap" rel="stylesheet">
+</head>
+<body>
+
+    <div class="controls">
+        <h1>AI Kaleidoscope</h1>
+        <p>Drag to draw. 'C' clears, 'S' saves, 1-9 changes symmetry.</p>
+        
+        <div class="gemini-feature">
+            <button id="suggestThemeBtn">✨ Suggest a Theme</button>
+            <div class="loader" id="themeLoader"></div>
+            <input type="text" id="palettePrompt" placeholder="Describe a color theme...">
+            <button id="generatePaletteBtn">✨ Generate Palette</button>
+            <div class="loader" id="paletteLoader"></div>
+        </div>
+        
+        <div class="gemini-feature">
+            <button id="nameCreationBtn">✨ Name My Creation</button>
+            <div class="loader" id="nameLoader"></div>
+        </div>
+        
+        <div id="artworkName"></div>
+    </div>
+
+    <script>
+        // --- p5.js Global Variables ---
+        let symmetry = 6;
+        let angle = 360 / symmetry;
+        let colorHue = 0;
+        let colorPalette = [];
+        let paletteIndex = 0;
+
+        // --- Gemini API Configuration ---
+        const apiKey = ""; // Leave blank
+        const textApiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-preview-05-20:generateContent?key=${apiKey}`;
+
+        // --- DOM Elements ---
+        let generatePaletteBtn, nameCreationBtn, suggestThemeBtn, palettePromptInput, paletteLoader, nameLoader, themeLoader, artworkNameDisplay, p5Canvas;
+
+        // --- p5.js setup function ---
+        function setup() {
+            p5Canvas = createCanvas(windowWidth, windowHeight);
+            angleMode(DEGREES);
+            colorMode(HSB, 360, 100, 100);
+            background(10, 25, 47);
+
+            // Connect to DOM elements after setup
+            generatePaletteBtn = document.getElementById('generatePaletteBtn');
+            nameCreationBtn = document.getElementById('nameCreationBtn');
+            suggestThemeBtn = document.getElementById('suggestThemeBtn');
+            palettePromptInput = document.getElementById('palettePrompt');
+            paletteLoader = document.getElementById('paletteLoader');
+            nameLoader = document.getElementById('nameLoader');
+            themeLoader = document.getElementById('themeLoader');
+            artworkNameDisplay = document.getElementById('artworkName');
+
+            generatePaletteBtn.addEventListener('click', handlePaletteGeneration);
+            nameCreationBtn.addEventListener('click', handleNameGeneration);
+            suggestThemeBtn.addEventListener('click', handleThemeSuggestion);
+        }
+
+        // --- p5.js draw function ---
+        function draw() {
+            translate(width / 2, height / 2);
+
+            if (mouseX > 0 && mouseX < width && mouseY > 0 && mouseY < height) {
+                let mx = mouseX - width / 2;
+                let my = mouseY - height / 2;
+                let pmx = pmouseX - width / 2;
+                let pmy = pmouseY - height / 2;
+
+                if (mouseIsPressed) {
+                    if (colorPalette.length > 0) {
+                        // Use the generated palette
+                        let currentColor = colorPalette[paletteIndex % colorPalette.length];
+                        stroke(currentColor);
+                        paletteIndex++;
+                    } else {
+                        // Use the default rainbow hue
+                        colorHue = (colorHue + 1) % 360;
+                        stroke(colorHue, 80, 100);
+                    }
+                    
+                    let speed = abs(mx - pmx) + abs(my - pmy);
+                    let sw = map(speed, 0, 25, 10, 2);
+                    strokeWeight(sw);
+                    
+                    for (let i = 0; i < symmetry; i++) {
+                        rotate(angle);
+                        line(mx, my, pmx, pmy);
+                        push();
+                        scale(1, -1);
+                        line(mx, my, pmx, pmy);
+                        pop();
+                    }
+                }
+            }
+        }
+
+        // --- Gemini API Call Functions ---
+
+        async function callGemini(payload) {
+             let retries = 3;
+             let delay = 1000;
+             for (let i = 0; i < retries; i++) {
+                try {
+                    const response = await fetch(textApiUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                    });
+                    if (!response.ok) {
+                        throw new Error(`HTTP error! status: ${response.status}`);
+                    }
+                    return await response.json();
+                } catch (error) {
+                    console.error(`Attempt ${i + 1} failed:`, error);
+                    if (i < retries - 1) {
+                        await new Promise(res => setTimeout(res, delay));
+                        delay *= 2; // Exponential backoff
+                    } else {
+                        throw error; // Rethrow after final attempt
+                    }
+                }
+            }
+        }
+
+        async function handleThemeSuggestion() {
+            setLoading(true, 'theme');
+            palettePromptInput.value = 'Getting a suggestion...';
+            const payload = {
+                contents: [{ parts: [{ text: "Suggest a short, creative, and visual theme for an abstract kaleidoscope drawing. For example: 'Cosmic Jellyfish' or 'Melting Glaciers'. Respond with only the theme, nothing else." }] }]
+            };
+            try {
+                const result = await callGemini(payload);
+                const theme = result.candidates[0].content.parts[0].text;
+                palettePromptInput.value = theme.trim().replace(/['"]+/g, ''); // Set input value to the suggestion
+            } catch (error) {
+                console.error("Error suggesting theme:", error);
+                palettePromptInput.value = '';
+                alert("Sorry, I couldn't get a suggestion. Please try again.");
+            } finally {
+                setLoading(false, 'theme');
+            }
+        }
+
+        async function handlePaletteGeneration() {
+            const userPrompt = palettePromptInput.value;
+            if (!userPrompt) {
+                alert("Please enter a theme for the color palette.");
+                return;
+            }
+
+            setLoading(true, 'palette');
+            artworkNameDisplay.innerText = ''; // Clear old name
+            
+            const payload = {
+                contents: [{ parts: [{ text: `Generate a harmonious color palette of 5 hex codes for the theme: "${userPrompt}".` }] }],
+                generationConfig: {
+                  responseMimeType: "application/json",
+                  responseSchema: {
+                    type: "OBJECT",
+                    properties: {
+                      "colors": {
+                        "type": "ARRAY",
+                        "items": { "type": "STRING" }
+                      }
+                    }
+                  }
+                }
+            };
+
+            try {
+                const result = await callGemini(payload);
+                const jsonText = result.candidates[0].content.parts[0].text;
+                const parsed = JSON.parse(jsonText);
+                if (parsed.colors && parsed.colors.length > 0) {
+                    colorPalette = parsed.colors;
+                    paletteIndex = 0;
+                    console.log("Generated Palette:", colorPalette);
+                    background(10, 25, 47); // Clear canvas for new palette
+                } else {
+                   throw new Error("Invalid palette format received.");
+                }
+            } catch (error)
+            {
+                console.error("Error generating palette:", error);
+                alert("Sorry, I couldn't generate a palette. Please try another prompt.");
+            } finally {
+                setLoading(false, 'palette');
+            }
+        }
+
+        async function handleNameGeneration() {
+            setLoading(true, 'name');
+            artworkNameDisplay.innerText = 'Thinking of a name...';
+
+            const base64ImageData = p5Canvas.elt.toDataURL('image/png').split(',')[1];
+            
+            const payload = {
+                contents: [{
+                    parts: [
+                        { text: "Give this abstract symmetrical artwork a short, poetic, and creative name. Respond with only the name." },
+                        { inlineData: { mimeType: "image/png", data: base64ImageData } }
+                    ]
+                }]
+            };
+
+            try {
+                const result = await callGemini(payload);
+                const name = result.candidates[0].content.parts[0].text;
+                artworkNameDisplay.innerText = `"${name.trim()}"`;
+            } catch (error) {
+                console.error("Error naming creation:", error);
+                artworkNameDisplay.innerText = 'Could not generate a name. Try again!';
+            } finally {
+                setLoading(false, 'name');
+            }
+        }
+
+        function setLoading(isLoading, feature) {
+            let btn, loader;
+            if (feature === 'palette') {
+                btn = generatePaletteBtn;
+                loader = paletteLoader;
+            } else if (feature === 'name') {
+                btn = nameCreationBtn;
+                loader = nameLoader;
+            } else if (feature === 'theme') {
+                btn = suggestThemeBtn;
+                loader = themeLoader;
+            }
+            
+            if (isLoading) {
+                btn.disabled = true;
+                loader.style.display = 'block';
+            } else {
+                btn.disabled = false;
+                loader.style.display = 'none';
+            }
+        }
+
+        // --- p5.js Event Functions ---
+        function keyPressed() {
+            if (key === 's' || key === 'S') {
+                saveCanvas('ai_kaleidoscope_art', 'png');
+            } else if (key === 'c' || key === 'C') {
+                background(10, 25, 47);
+                colorPalette = []; // Reset to rainbow mode
+                artworkNameDisplay.innerText = ''; // Clear name
+            } else if (key >= '1' && key <= '9') {
+                symmetry = int(key);
+                angle = 360 / symmetry;
+                background(10, 25, 47);
+            }
+        }
+        
+        function windowResized() {
+            resizeCanvas(windowWidth, windowHeight);
+            background(10, 25, 47);
+        }
+    </script>
+</body>
+</html>
+
 
